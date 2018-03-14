@@ -1,11 +1,10 @@
 from twitterscraper import query_tweets
 from pathlib  import Path
 import json
-from nltk.tokenize import RegexpTokenizer
 from nltk import FreqDist
+from nltk.tokenize import RegexpTokenizer
 from nltk.corpus import stopwords 
 from nltk.util import ngrams
-
 
 def loadTweets(tweetFilename, query):
     jsonPath = Path(tweetFilename)
@@ -18,7 +17,7 @@ def loadTweets(tweetFilename, query):
             json.dump(tweets, jsonFile)
         return tweets
 
-def loadFreq(freqFilename, tweets, ngram=1, limit=1000):
+def loadFreq(freqFilename, tweets, ngram=1, limit=100):
     jsonPath = Path(freqFilename)
     if jsonPath.exists():
         with jsonPath.open() as jsonFile:
@@ -35,7 +34,19 @@ if __name__ == '__main__':
     tFile = 'merged.json'
     fFile = 'freq.json'
     query = 'from:marinapagno OR from:EPTC_POA'
+    query2 = 'from:marinapagno OR from:EPTC_POA'
     tweets = loadTweets(tFile, query)
-    freq = loadFreq(fFile, tweets, 3)
-    for w,f in freq:
-        print(' '.join(w)+' => '+str(f))
+    freq = {}
+    for i in range(2,0,-1):
+        for w,f in loadFreq(fFile[:4]+str(i)+fFile[4:], tweets, i):
+            hasBiggerNGram = False
+            w = ' '.join(w)
+            for o in freq:
+                if(set(w).issubset(o)):
+                    hasBiggerNGram = True
+                    break
+            if not hasBiggerNGram:
+                freq[w] = f
+
+    for w in freq:
+        print(w+' => '+str(freq[w]))
