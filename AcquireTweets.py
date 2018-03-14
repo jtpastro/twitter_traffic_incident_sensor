@@ -26,7 +26,7 @@ def loadFreq(freqFilename, tweets, ngram=1, limit=100):
         with jsonPath.open('w') as jsonFile:
             tknzr = RegexpTokenizer(r'[\w-]+')
             stopwordList = stopwords.words('portuguese')
-            freq = FreqDist(ngrams([word for word in tknzr.tokenize(" ".join(tweets).lower()) if word not in stopwordList and len(word) > 3 and not word[0].isdigit()], ngram)).most_common(limit)
+            freq = FreqDist(ngrams((word for word in tknzr.tokenize(" ".join(tweets).lower()) if word not in stopwordList and len(word) > 3 and not word[0].isdigit()), ngram)).most_common(limit)
             json.dump(freq, jsonFile)
         return freq
 
