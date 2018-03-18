@@ -3,37 +3,34 @@ from pathlib  import Path
 import json
 from nltk import FreqDist
 from nltk.tokenize import RegexpTokenizer
-from nltk.corpus import stopwords 
+from nltk.corpus import stopwords, floresta
 from nltk.util import ngrams
 
-def loadTweets(tweetFilename, query):
-    jsonPath = Path(tweetFilename)
+def openElseLoad(filename, loadFunction):
+    jsonPath = Path(filename)
     if jsonPath.exists():
         with jsonPath.open() as jsonFile:
             return json.load(jsonFile)
     else:
         with jsonPath.open('w') as jsonFile:
-            tweets = [tweet.text for tweet in query_tweets(query)]
-            json.dump(tweets, jsonFile)
-        return tweets
+            data = loadFunction()
+            json.dump(data, jsonFile)
+        return data
 
-def loadFreq(freqFilename, tweets, ngram=2, limit=100):
-    jsonPath = Path(freqFilename)
-    if jsonPath.exists():
-        with jsonPath.open() as jsonFile:
-            j = json.load(jsonFile)
-        return j.items()
-    else:
-        with jsonPath.open('w') as jsonFile:
-            tokens = tokenizeTweets(tweets) 
-            freq = dict((' '.join(w),f) for n in range(ngram, 0, -1) for w,f in FreqDist(ngrams(tokens, n)).most_common(limit))
-            json.dump(freq, jsonFile)
-        return freq
 
-def tokenizeTweets(tweets):
+def loadTweets(tweetFilename, query, maxResults=None):
+    tweets = lambda: [tweet.text for tweet in query_tweets(query, limit=maxResults)]
+    return openElseLoad(tweetFilename, tweets)
+
+def loadFreq(freqFilename, tweets, ngram=2, limit=400):
+    tokens = [token for tweet in tweets for token in tokenizeTweet(tweet)] 
+    freq = lambda: bestGrams((' '.join(w),f) for n in range(ngram, 0, -1) for w,f in FreqDist(ngrams(tokens, n)).most_common(limit))
+    return openElseLoad(freqFilename, freq)
+
+def tokenizeTweet(tweet):
     tknzr = RegexpTokenizer(r'[\w-]+')
-    stopwordList = stopwords.words('portuguese')
-    return [word for word in tknzr.tokenize(" ".join(tweets).lower()) if word not in stopwordList and len(word) > 3 and not word[0].isdigit()]
+    stopwordList = getStopwords()
+    return [word for word in tknzr.tokenize(tweet.lower()) if word not in stopwordList and len(word)>1 and not word[0].isdigit()]
 
 def bestGrams(allFreq):
     freq = {}
@@ -42,13 +39,25 @@ def bestGrams(allFreq):
             freq[w] = f
     return freq
 
+def getStopwords():
+    swFunc = lambda: stopwords.words('portuguese') + [w.lower() for w,f in FreqDist(floresta.words()).most_common(500) if len(w)<=4]
+    return openElseLoad('stopwords.json', swFunc)
+
+def fileLinesToList(filename):
+    try:
+        with open(filename) as _file:
+            return _file.readlines()
+    except:
+        return []
+
 if __name__ == '__main__':
     tFile = 'merged.json'
     fFile = 'freq.json'
     query = 'from:marinapagno OR from:EPTC_POA'
     tweets = loadTweets(tFile, query)
-    freq = bestGrams(loadFreq(fFile, tweets))
+    freq = loadFreq(fFile, tweets)
     for w in freq:
-        print(w+' => '+str(freq[w]))
+        loadTweets('output/'+w.replace(' ', '_')+'.json', w+' near:"Porto Alegre"', 800)
+
 
     
