@@ -51,13 +51,13 @@ def fileLinesToList(filename):
         return []
 
 if __name__ == '__main__':
-    tFile = 'tweets_traffic.json'
-    fFile = 'freq_words_traffic.json'
+    tFile = 'cache/tweets_traffic.json'
+    fFile = 'cache/freq_words_traffic.json'
     query = 'from:marinapagno OR from:EPTC_POA'
     tweets = loadTweets(tFile, query)
     freq = loadFreq(fFile, tweets)
     for w in freq:
-        loadTweets('output/'+w.replace(' ', '_')+'.json', w+' near:"Porto Alegre"', 800)
+        loadTweets('tweets/'+w.replace(' ', '_')+'.json', w+' near:"Porto Alegre"', 800)
 
 
     
