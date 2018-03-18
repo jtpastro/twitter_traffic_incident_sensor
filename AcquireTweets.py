@@ -41,7 +41,7 @@ def bestGrams(allFreq):
 
 def getStopwords():
     swFunc = lambda: stopwords.words('portuguese') + [w.lower() for w,f in FreqDist(floresta.words()).most_common(500) if len(w)<=4]
-    return openElseLoad('stopwords.json', swFunc)
+    return openElseLoad('cache/stopwords.json', swFunc)
 
 def fileLinesToList(filename):
     try:
