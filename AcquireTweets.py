@@ -51,8 +51,8 @@ def fileLinesToList(filename):
         return []
 
 if __name__ == '__main__':
-    tFile = 'merged.json'
-    fFile = 'freq.json'
+    tFile = 'tweets_traffic.json'
+    fFile = 'freq_words_traffic.json'
     query = 'from:marinapagno OR from:EPTC_POA'
     tweets = loadTweets(tFile, query)
     freq = loadFreq(fFile, tweets)
