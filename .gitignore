@@ -102,3 +102,4 @@ ENV/
 
 #mine
 tweets
+cache/train*
