@@ -102,4 +102,7 @@ ENV/
 
 #mine
 tweets
-cache/train*
+cache
+input
+output
+.DS_Store

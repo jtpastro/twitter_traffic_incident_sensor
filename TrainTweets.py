@@ -1,94 +1,22 @@
-import pickle
 from pathlib import Path
-from gensim.models.doc2vec import Doc2Vec, TaggedDocument
-from TokenizeTweet import getStopwords, tokenizeTweet
-import collections
-from numpy import dot
-from numpy.linalg import norm
-import fasttext as ft
+from gensim.models.doc2vec import TaggedDocument
+from TokenizeTweet import FilterTokenizer
+from collections import defaultdict, Counter
+from itertools import zip_longest, product, combinations, chain
+from WordEmbeddingClassifier import Paragraph2VecClassifier, FastTextClassifier
+import json
+from time import process_time
 
 def loadTrainingSet(initialPath):
     for path in Path(initialPath).iterdir():
-        for path3 in zip(*[(path3 for path3 in Path(path2).iterdir()) for path2 in Path(path).iterdir()]):
-            yield path3
+        for tweetClass in zip_longest(*[(path3 for path3 in Path(path2).iterdir()) for path2 in Path(path).iterdir()]):
+            for tweetFile in tweetClass:
+                if tweetFile:
+                    yield "test" if None in tweetClass else "train", tweetFile.parent.name, tweetFile
 
-def loadTaggedDocuments(classifiedTweets):
-    i=0
-    for tweetClass in classifiedTweets:
-        for tweetFile in tweetClass:
-            text = ""
-            with tweetFile.open(encoding="utf8") as f:
-                text = f.readline()
-            i+=1
-            yield TaggedDocument([token for token in tokenizeTweet(text)], [tweetFile.parent.name, "SENT_"+str(i)])
-
-def trainDoc2Vec(trainingSet, path=None, loadFile=True):
-    if loadFile and path and Path(path).exists():
-        return Doc2Vec.load(path)
-    model = Doc2Vec(dm=0, alpha=0.025, vector_size=140, min_alpha=0.0001, epochs=125, min_count=0, workers=8)
-    model.build_vocab(trainingSet)
-    model.train(trainingSet, total_examples=model.corpus_count, epochs=model.epochs)
-    if path:
-        model.save(path)
-    return model
-
-def ranking(train_corpus, model):
-    ranks = []
-    for doc_id in range(len(train_corpus)):
-        inferred_vector = model.infer_vector(train_corpus[doc_id].words)
-        sims = model.docvecs.most_similar([inferred_vector], topn=len(model.docvecs))
-        rank = [docid for docid, sim in sims].index(train_corpus[doc_id].tags[1])
-        ranks.append(rank)
-
-    mode, freq = zip(*collections.Counter(ranks).most_common(3))
-    mean = sum(ranks)/len(ranks)
-    median = sorted(ranks)[len(ranks)//2]
-    return mode, int(mean+0.5), median, int(sum(freq)*100/len(ranks)+0.5) 
-
-def selfAssessment(train_corpus, model):
-    for doc in train_corpus:
-        inferred_vector = model.infer_vector(doc.words)
-        yield doc.tags[0], cosineDistance(model["transit"], inferred_vector), cosineDistance(model["not_transit"], inferred_vector)
-
-def cosineDistance(a,b):
-    return dot(a, b)/(norm(a)*norm(b))
-
-def testDoc2Vec(trainingSet, tweets):
-    model = trainDoc2Vec(trainingSet, "cache/trainedModel.bin", False)
-    print("-------")
-    print("DOC2VEC")
-    print("-------")
-    #print("Mode: {stat[0]}, Mean: {stat[1]}, Median: {stat[2]}, Match: {stat[3]}%".format(stat=ranking(trainingSet, model)))
-    res = collections.defaultdict(int)
-    for tag, t_cls, nt_cls in selfAssessment(trainingSet, model):
-        if (tag=="transit") == (t_cls > nt_cls):
-            res[tag] += 1
-    for tag in res:
-        print(tag, "{:.2f}%".format(res[tag]*200/len(trainingSet)))
-
-    for twt in tweets:
-        tkns = [w for w in tokenizeTweet(twt)]
-        iv = model.infer_vector(tkns)
-        print(tkns)
-        print(cosineDistance(model["transit"], iv))
-        print(cosineDistance(model["not_transit"], iv))
-    print("-------")
-
-def testFastText(trainFile, modelFile, tweets):
-    print("-------")
-    print("FASTTEXT")
-    print("-------")
-    classifier = ft.load_model(modelFile) if Path(modelFile).exists() else ft.supervised(trainFile, modelFile)
-    for twt in tweets:
-        print(classifier.predict([" ".join([w for w in tokenizeTweet(twt)])]))
-        print("-------")
-    result = classifier.test(trainFile)
-    print ('P@1:', result.precision)
-    print ('R@1:', result.recall)
-    print ('Number of examples:', result.nexamples)
-
-def loadFastTextFormat(ftFile):
+def loadFastTextFormat(ftFile, label="__label__"):
     tdList = []
+    ftFile = Path(ftFile)
     if ftFile.exists():
         with ftFile.open(mode='r') as f:
             for line in f:
@@ -96,30 +24,124 @@ def loadFastTextFormat(ftFile):
                 tags = []
                 words = []
                 for token in tokens:
-                    if "__label__" in token:
-                        tags.append(token.split("__label__")[-1])
+                    if label in token:
+                        tags.append(token.split(label)[-1])
                     else:
                         words.append(token)
                     tdList.append(TaggedDocument(words, tags))
-    else:
-        with ftFile.open(mode='w') as f:
-            sId = 0
-            for tweetClass in zip(*[i for i in loadTrainingSet('tweets/Classificados/')]):
-                for tweetFile in tweetClass:
-                    with tweetFile.open(encoding="utf8") as f2:
-                        text = f2.readline()
-                    sId += 1
-                    words = [tkn for tkn in tokenizeTweet(text)]
-                    tokens = [" ".join(words), "__label__" + tweetFile.parent.name, "__label__"+str(sId)]
-                    tdList.append(TaggedDocument(words, tokens[1:]))
-                    f.write(" ".join(tokens)+'\n')
     return tdList
 
+def saveFastTextFormat(inFiles, outFile, paramComb, label="__label__"):
+    outFile = Path(outFile)
+    tknzr = FilterTokenizer(**paramComb)
+    with outFile.open(mode='w') as f:
+        sId = 0
+        for twtCls in inFiles:
+            for tweetFile in inFiles[twtCls]:
+                with Path(tweetFile).open(encoding="utf8") as f2:
+                    text = f2.readline()
+                sId += 1
+                words = [tkn for tkn in tknzr.tokenize(text)]
+                tokens = [" ".join(words), label + twtCls, label+str(sId)]
+                f.write(" ".join(tokens)+'\n')
+
+def generateParametersCombinationAll(params):
+    for comb in product(*[product([pName], params[pName]) for pName in params]):
+        yield dict(comb)
+
+def generateParametersCombinationOneFixed(params):
+    for pName in params:
+        for param, value in product([pName], params[pName]):
+            yield {param: value}
+
+def printAsCSV(*args, out=None):
+    if out:
+        print(*args, sep=', ', file=out)
+    print(*args, sep=', ')
+
+def evaluate(params, classifier, trainingFile, testFile, outFile, iterations=10):
+    print(outFile)
+    with open(outFile,'w') as f:
+        for j,paramComb in enumerate(generateParametersCombinationOneFixed(params)):
+            ev = []
+            timers = []
+            for i in range(iterations):
+                print("Iteration {:d}".format(i+1))
+                start_time = process_time()
+                cfier = classifier(trainingFile, **paramComb)
+                timers.append(process_time() - start_time)
+                ev.append(cfier.evaluate(testFile))
+            evals = {l:{p: "{:.4}".format(sum(e[l][p] for e in ev)/len(ev)) for p in ev[0][l]} for l in ev[0]}
+            if j == 0:
+                pCounter = ('param'+str(i)+', val'+str(i) for i in range(len(paramComb)))
+                printAsCSV(*pCounter,"class", *next(iter(evals.values())).keys(), "trainTime", out=f)
+            for _cls in evals:
+                params = (k+', '+str(v) for k,v in paramComb.items())
+                printAsCSV(*params, _cls, *evals[_cls].values(), '{:.2f}'.format(round(sum(timers)/iterations, 2)), out=f)
+
+def filterLines(file):
+    with open(file) as f:
+        while True:
+            params = f.readline()
+            result = f.readline()
+            if not result:
+                break
+            if "'precision': (9" in result:
+                print(params,result, end='')
+
+def powerset(iterable):
+    """
+    powerset([1,2,3]) --> () (1,) (2,) (3,) (1,2) (1,3) (2,3) (1,2,3)
+    """
+    xs = list(iterable)
+    # note we return an iterator rather than a list
+    return chain.from_iterable(combinations(xs,n) for n in range(len(xs)+1))
+
+def loadBest(file, paramLen=1):
+    return sorted([(k,c) for k,c in Counter(paramSubSet for params in json.load(open(file)) for paramSubSet in combinations(params.items(), paramLen)).most_common() if c > 1])
+
 if __name__ == '__main__':
-    ftFilename = 'cache/ft_labelled_tweets.txt'
-    #ftModelFile = 'cache/trainedModelFT'
-    trainingSet = loadFastTextFormat(Path(ftFilename))
-    #trainingSet = pickle.load(open('cache/trainingSet.pickle', 'rb'))
-    #tweets = ["o transito na ipiranga esta lento", "o trafego na internet esta lento", "o trafego de rede esta lento"]
-    #testDoc2Vec(trainingSet, tweets)
-    #testFastText(ftFilename, ftModelFile, tweets)
+    tokenParameters = generateParametersCombinationAll({'filterStopwords':[False, True], 'stemming':[False, True], 'groupClasses':[False, True]})
+    evalFiles = defaultdict(list)
+    trainFileList = sorted(Path('input/').glob('train*.txt'))
+    testFileList = sorted(Path('input/').glob('test*.txt'))
+    if not any(trainFileList) or not any(testFileList):
+        datasets = defaultdict(lambda: defaultdict(list))
+        for setType,tweetClass,filePath in loadTrainingSet('tweets/Classificados/'):
+            datasets[setType][tweetClass].append(filePath)
+        for comb in tokenParameters:
+            for setType in datasets:
+                filename = setType+"_"+"_".join(("" if comb[k] else "not")+k for k in comb)
+                evalFiles[setType].append("input/"+filename+".txt")
+                saveFastTextFormat(datasets[setType], evalFiles[setType][-1], comb)   
+    else:
+        paramsP2V = {  
+                    "vecSize": [25, 50, 100, 300],
+                    "winSize": [3, 5, 9],
+                    "epochs": [20, 40, 80],
+                    "minCount": [0,1,5],
+                    "lossFunction": [-5,-1,0,1],
+                    "sampleThreshold": [0.01, 0.001, 0.0001],
+                    "learnRate": [0.5, 0.25, 0.025, 0.0025],
+                    "learnDropRate": [10/25, 1/25, 1/250],
+                    "trainingAlgorithm": [0,1,2,3]
+                }
+        paramsFT = { 
+                    "vecSize": [25,50,100,300],
+                    "winSize": [3, 5, 9],
+                    "epochs": [20, 40, 80],
+                    "minCount": [0,1,5],
+                    "lossFunction": [-5,-1,0,1],
+                    "sampleThreshold": [0.01, 0.001, 0.0001],
+                    "learnRate": [0.05, 0.1, 0.25, 0.5],
+                    "ngrams": [0,5,6],
+                    "wordGrams": [1,3,5],
+                    "bucket": [0,1000000, 2000000, 10000000]
+            }
+        for trainFile, testFile in zip(trainFileList, testFileList):
+            evaluate(paramsP2V, Paragraph2VecClassifier, trainFile, testFile, 'output/p2v'+trainFile.name.lstrip('train'))
+            evaluate(paramsFT, FastTextClassifier, str(trainFile), str(testFile), 'output/ft'+trainFile.name.lstrip('train'))
+               
+        #filterLines("input/paragraph2vec_stats.txt")
+        #for i in loadBest("filtered.txt"):
+        #    print(*i)
